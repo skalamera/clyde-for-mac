@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Deliberately un-sandboxed: Core Audio process taps, the private
+         CGSSetWindowCaptureExcludeShape call, and spawning arbitrary local MCP server
+         binaries (npx/uvx/python) are all fragile-to-broken under App Sandbox. This also
+         means the app cannot be distributed through the Mac App Store, which is expected
+         and fine for a self-signed, directly-distributed tool. -->
+    <key>com.apple.security.app-sandbox</key>
+    <false/>
+
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+
+    <!-- Outbound HTTPS to api.anthropic.com, MCP HTTP servers, and Speech asset downloads. -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+</dict>
+</plist>

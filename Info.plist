@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>Clyde</string>
+    <key>CFBundleDisplayName</key>
+    <string>Clyde</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.clyde.copilot</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleExecutable</key>
+    <string>Clyde</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>26.0</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.productivity</string>
+
+    <!-- Regular app: Dock icon + Cmd-Tab entry (the status-bar item is kept as well). -->
+    <key>LSUIElement</key>
+    <false/>
+
+    <!-- TCC usage-description strings. These are read at prompt time regardless of how the
+         app was built (hand-written Info.plist, not Xcode INFOPLIST_KEY_* settings). -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Clyde listens to your microphone so it can transcribe your side of the conversation during a meeting.</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>Clyde captures system audio (e.g. the other participants in your meeting) so it can transcribe the conversation live. Audio is processed on-device and is never recorded to disk.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Clyde uses speech recognition to transcribe meeting audio live.</string>
+
+    <key>NSSupportsAutomaticGraphicsSwitching</key>
+    <true/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+</dict>
+</plist>

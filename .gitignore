@@ -1,0 +1,4 @@
+.build/
+Clyde.app/
+.DS_Store
+*.xcuserstate
