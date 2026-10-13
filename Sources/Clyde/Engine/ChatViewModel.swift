@@ -54,6 +54,8 @@ final class ChatViewModel {
                 tools: tools,
                 model: router.effectiveModel(for: .chat),
                 options: .chat,
+                // Mid-meeting questions need answers in seconds, not minutes.
+                maxToolRounds: 3,
                 onTextDelta: { [weak self] delta in
                     Task { @MainActor in
                         guard let self, assistantIndex < self.messages.count else { return }
@@ -90,7 +92,10 @@ final class ChatViewModel {
         (everyone else on the call). Use it as ground truth for what has been said. If the \
         transcript doesn't cover what's being asked, say so rather than guessing. Be concise — \
         the user is in the middle of a live conversation and needs quick, scannable answers, not \
-        essays. Use any available tools when they would make your answer more accurate.
+        essays. Speed matters more than completeness: answer from the transcript and context \
+        below when they cover it. If you need tools, make one or two targeted lookups (run \
+        independent lookups in parallel in the same turn), then answer. Never keep searching \
+        across sources for marginal extra detail; a short answer now beats a perfect one later.
         \(userProvidedContext.isEmpty ? "" : "\nThe user told you this about the meeting before it started — treat it as reliable background, not something said in the meeting itself:\n\(userProvidedContext)\n")
         \(priorMeetingContext.isEmpty ? "" : "\n" + priorMeetingContext + "\n")
         --- LIVE TRANSCRIPT ---
