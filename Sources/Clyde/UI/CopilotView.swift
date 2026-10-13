@@ -67,6 +67,16 @@ struct CopilotView: View {
             .padding(.horizontal, 8).padding(.vertical, 3)
             .background(Capsule().fill(.white.opacity(0.1)))
 
+            if model.screenWatcher.isWatching {
+                Image(systemName: model.screenWatcher.isPausedForPrivacy ? "eye.slash" : "eye.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(model.screenWatcher.lastError == nil ? Color.green : Color.orange)
+                    .help(model.screenWatcher.lastError.map { "Screen watching failed: \($0)" }
+                          ?? (model.screenWatcher.isPausedForPrivacy
+                              ? "Screen watching paused (sensitive app in front)"
+                              : "Clyde is watching the display your mouse is on"))
+            }
+
             if Settings.shared.showScreenshotButton {
                 Button {
                     didCaptureScreenshot = model.captureScreenshot()

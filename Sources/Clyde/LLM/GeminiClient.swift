@@ -237,6 +237,8 @@ final class GeminiClient: LLMBackend, @unchecked Sendable {
                         "response": ["result": result.content, "isError": result.isError]
                     ]
                 ])
+            case .image(let data, let mimeType):
+                parts.append(["inlineData": ["mimeType": mimeType, "data": data.base64EncodedString()]])
             }
         }
         // Gemini has no separate "tool" role: both our .toolUse (assistant-authored) and

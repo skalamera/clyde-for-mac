@@ -95,6 +95,7 @@ final class ClaudeCodeCLIBackend: LLMBackend, @unchecked Sendable {
                 case .text(let t): return t
                 case .toolResult(let r): return "[tool result: \(r.content)]"
                 case .toolUse: return nil
+                case .image: return nil // CLI path is text-only; OCR text travels separately
                 }
             }.joined(separator: "\n")
             return "\(message.role.rawValue): \(text)"

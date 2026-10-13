@@ -22,7 +22,10 @@ final class ChatViewModel {
 
     private let router: LLMRouter
 
-    init(meetingContext: MeetingContext, llm: LLMRouter, mcp: MCPManager) {
+    private let screen: ScreenWatcher
+
+    init(meetingContext: MeetingContext, llm: LLMRouter, mcp: MCPManager, screen: ScreenWatcher) {
+        self.screen = screen
         self.meetingContext = meetingContext
         self.mcp = mcp
         self.router = llm
@@ -49,9 +52,14 @@ final class ChatViewModel {
                 userProvidedContext: meetingContext.userProvidedContext,
                 calendarEventContext: meetingContext.calendarEventContext
             )
-            let updatedHistory = try await runner.run(
+            // Attach the current screen to this question only; history keeps plain text so
+            // images don't pile up across turns.
+            let userIndex = history.count - 1
+            var requestHistory = history
+            requestHistory[userIndex] = ProactiveAnalyzer.userMessage(text: text, screen: screen.latest)
+            var updatedHistory = try await runner.run(
                 system: system,
-                messages: history,
+                messages: requestHistory,
                 tools: tools,
                 model: router.effectiveModel(for: .chat),
                 options: .chat,
@@ -64,6 +72,7 @@ final class ChatViewModel {
                     }
                 }
             )
+            if userIndex < updatedHistory.count { updatedHistory[userIndex] = .user(text) }
             history = updatedHistory
             if assistantIndex < messages.count {
                 messages[assistantIndex].isStreaming = false
@@ -96,7 +105,9 @@ final class ChatViewModel {
         essays. Speed matters more than completeness: answer from the transcript and context \
         below when they cover it. If you need tools, make one or two targeted lookups (run \
         independent lookups in parallel in the same turn), then answer. Never keep searching \
-        across sources for marginal extra detail; a short answer now beats a perfect one later.
+        across sources for marginal extra detail; a short answer now beats a perfect one later. \
+        The user's question may include their current screen (screenshot + OCR text); when they \
+        say "this", "that error", or "what's on screen", answer from it.
         \(userProvidedContext.isEmpty ? "" : "\nThe user told you this about the meeting before it started — treat it as reliable background, not something said in the meeting itself:\n\(userProvidedContext)\n")
         \(calendarEventContext.isEmpty ? "" : "\n" + calendarEventContext + "\n")
         \(priorMeetingContext.isEmpty ? "" : "\n" + priorMeetingContext + "\n")

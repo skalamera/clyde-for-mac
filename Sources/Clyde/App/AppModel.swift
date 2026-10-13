@@ -18,6 +18,7 @@ final class AppModel {
     // view updates when its contents change.
     let chat: ChatViewModel
     let proactive: ProactiveAnalyzer
+    let screenWatcher = ScreenWatcher()
 
     private(set) var isMeetingActive = false
     private(set) var meetingStatusMessage = "Not in a meeting"
@@ -169,8 +170,8 @@ final class AppModel {
     }
 
     init() {
-        chat = ChatViewModel(meetingContext: meetingContext, llm: llmRouter, mcp: mcp)
-        proactive = ProactiveAnalyzer(meetingContext: meetingContext, llm: llmRouter, mcp: mcp)
+        chat = ChatViewModel(meetingContext: meetingContext, llm: llmRouter, mcp: mcp, screen: screenWatcher)
+        proactive = ProactiveAnalyzer(meetingContext: meetingContext, llm: llmRouter, mcp: mcp, screen: screenWatcher)
     }
 
     func bootstrap() async {
@@ -391,6 +392,7 @@ final class AppModel {
         isMeetingActive = true
         meetingStatusMessage = "Meeting in progress"
         proactive.start()
+        screenWatcher.start()
 
         rmsMonitorTask = Task { [weak self] in
             while let self, self.isMeetingActive, !Task.isCancelled {
@@ -405,6 +407,7 @@ final class AppModel {
         guard isMeetingActive else { return }
         isMeetingActive = false
         proactive.stop()
+        screenWatcher.stop()
         rmsMonitorTask?.cancel()
         rmsMonitorTask = nil
 

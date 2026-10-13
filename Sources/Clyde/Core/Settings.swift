@@ -47,6 +47,11 @@ final class Settings: @unchecked Sendable {
     var showScreenshotButton: Bool {
         didSet { defaults.set(showScreenshotButton, forKey: "showScreenshotButton") }
     }
+    /// Whether Clyde watches the screen (display under the mouse) during active meetings to
+    /// inform suggestion cards and chat. Frames stay in memory only.
+    var screenWatchEnabled: Bool {
+        didSet { defaults.set(screenWatchEnabled, forKey: "screenWatchEnabled") }
+    }
     /// Base URL for the Hadrius CS calendar feed proxy (not the direct Google Calendar API) —
     /// see Engine/CalendarClient.swift.
     var calendarAPIURL: String {
@@ -69,6 +74,7 @@ final class Settings: @unchecked Sendable {
         geminiModel = defaults.string(forKey: "geminiModel") ?? "gemini-3.7-flash"
         captureExclusionEnabled = defaults.object(forKey: "captureExclusionEnabled") as? Bool ?? true
         showScreenshotButton = defaults.object(forKey: "showScreenshotButton") as? Bool ?? true
+        screenWatchEnabled = defaults.object(forKey: "screenWatchEnabled") as? Bool ?? true
         calendarAPIURL = defaults.string(forKey: "calendarAPIURL") ?? "https://product.hadrius.com"
         calendarSelfEmail = defaults.string(forKey: "calendarSelfEmail") ?? "stephen@hadrius.com"
     }

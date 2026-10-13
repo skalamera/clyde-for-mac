@@ -51,6 +51,12 @@ final class MeetingContext {
     /// segment can be closed in place (see `upsert`) after later segments already finalized.
     private var analyzedSegmentIDs: Set<String> = []
 
+    /// Characters of finalized text not yet consumed, without consuming it.
+    func peekNewFinalizedCharacterCount() -> Int {
+        segments.filter { $0.isFinal && !analyzedSegmentIDs.contains($0.id) }
+            .reduce(0) { $0 + $1.speaker.displayName.count + 2 + $1.text.count }
+    }
+
     func consumeNewFinalizedText() -> String? {
         let newOnes = segments.filter { $0.isFinal && !analyzedSegmentIDs.contains($0.id) }
         guard !newOnes.isEmpty else { return nil }

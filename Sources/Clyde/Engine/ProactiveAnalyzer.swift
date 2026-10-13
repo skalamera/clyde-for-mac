@@ -36,7 +36,13 @@ final class ProactiveAnalyzer {
     private let minimumNewCharacters = 25
     private let pollInterval: TimeInterval = 3
 
-    init(meetingContext: MeetingContext, llm: LLMRouter, mcp: MCPManager) {
+    private let screen: ScreenWatcher
+    /// Screen changes must sit still this long before triggering a pass, so a page that's
+    /// still loading/animating is captured once settled rather than mid-transition.
+    private let screenSettleInterval: TimeInterval = 1.5
+
+    init(meetingContext: MeetingContext, llm: LLMRouter, mcp: MCPManager, screen: ScreenWatcher) {
+        self.screen = screen
         self.meetingContext = meetingContext
         self.mcp = mcp
         self.router = llm
@@ -61,14 +67,25 @@ final class ProactiveAnalyzer {
         loopTask = Task { [weak self] in
             guard let self else { return }
             var lastRunAt: Date = .distantPast
+            var lastScreenGeneration = await self.screen.changeGeneration
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(self.pollInterval))
                 guard await self.isEnabled else { continue }
                 guard Date().timeIntervalSince(lastRunAt) >= self.minimumInterval else { continue }
-                guard let newText = await self.meetingContext.consumeNewFinalizedText(),
-                      newText.count >= self.minimumNewCharacters else { continue }
+
+                // A pass runs on enough new speech OR a settled, meaningful screen change
+                // (e.g. an error dialog appearing while nobody is talking).
+                let generation = await self.screen.changeGeneration
+                let lastChangeAt = await self.screen.lastChangeAt
+                let screenChanged = generation != lastScreenGeneration
+                    && Date().timeIntervalSince(lastChangeAt) >= self.screenSettleInterval
+                let pending = await self.meetingContext.peekNewFinalizedCharacterCount()
+                guard pending >= self.minimumNewCharacters || screenChanged else { continue }
+
+                let newText = await self.meetingContext.consumeNewFinalizedText() ?? ""
+                lastScreenGeneration = generation
                 lastRunAt = Date()
-                await self.analyze(newText: newText)
+                await self.analyze(newText: newText, screenChanged: screenChanged)
             }
         }
     }
@@ -86,7 +103,7 @@ final class ProactiveAnalyzer {
     func nudge() async {
         guard !isNudging else { return }
         let fullTranscript = meetingContext.finalizedTranscriptText
-        guard !fullTranscript.isEmpty else { return }
+        guard !fullTranscript.isEmpty || screen.latest != nil else { return }
         let recentTranscript = Self.recentTail(of: fullTranscript)
 
         isNudging = true
@@ -98,12 +115,13 @@ final class ProactiveAnalyzer {
             userMessage: Self.nudgeUserPrompt(
                 fullTranscript: fullTranscript, recentTranscript: recentTranscript,
                 contextPreamble: Self.contextPreamble(meetingContext: meetingContext)
-            )
+            ),
+            screen: screen.latest
         )
         lastNudgeProducedNothing = suggestions.count == countBefore
     }
 
-    private func analyze(newText: String) async {
+    private func analyze(newText: String, screenChanged: Bool) async {
         // Include the recent transcript tail alongside the new chunk: a question often spans
         // chunks or leans on what was just said, and live STT garble is much easier to read
         // through with surrounding context.
@@ -114,8 +132,10 @@ final class ProactiveAnalyzer {
                 recentTranscript: newText,
                 recentContext: recentContext,
                 contextPreamble: Self.contextPreamble(meetingContext: meetingContext),
-                recentCards: suggestions.suffix(6).map(\.title)
-            )
+                recentCards: suggestions.suffix(6).map(\.title),
+                screenChanged: screenChanged
+            ),
+            screen: screen.latest
         )
     }
 
@@ -135,12 +155,12 @@ final class ProactiveAnalyzer {
         return parts.joined(separator: "\n\n")
     }
 
-    private func performAnalysis(system: String, userMessage: String) async {
+    private func performAnalysis(system: String, userMessage: String, screen snapshot: ScreenSnapshot?) async {
         do {
             let tools = await mcp.allTools
             let messages = try await runner.run(
-                system: system,
-                messages: [.user(userMessage)],
+                system: system + Self.screenInstructions,
+                messages: [Self.userMessage(text: userMessage, screen: snapshot)],
                 tools: tools,
                 model: router.effectiveModel(for: .proactive),
                 options: .proactive,
@@ -167,6 +187,30 @@ final class ProactiveAnalyzer {
             Log.llm.error("Proactive analysis failed: \(error.localizedDescription, privacy: .public)")
         }
     }
+
+    /// Builds the user turn, appending the latest screen snapshot (OCR text + image) when the
+    /// screen watcher has one from the last couple of minutes.
+    static func userMessage(text: String, screen: ScreenSnapshot?) -> LLMMessage {
+        guard let screen, Date().timeIntervalSince(screen.capturedAt) < 120 else { return .user(text) }
+        let age = Int(Date().timeIntervalSince(screen.capturedAt))
+        var block = "\n\n--- USER'S SCREEN (display under their mouse, captured \(age)s ago"
+        if let app = screen.frontmostApp { block += ", frontmost app: \(app)" }
+        block += ") ---\n"
+        block += screen.ocrText.isEmpty ? "(no readable text)" : "Text on screen (OCR):\n\(screen.ocrText)"
+        block += "\n--- END SCREEN ---"
+        return LLMMessage(role: .user, content: [.text(text + block), .image(data: screen.jpeg, mimeType: "image/jpeg")])
+    }
+
+    private static let screenInstructions = """
+
+
+    SCREEN CONTEXT: You may also get a screenshot of the user's screen (the display under their \
+    mouse) plus OCR'd text from it. The user is often screen sharing or reproducing an issue \
+    live. Treat a visible error message, failed request, stack trace, wrong value, or warning \
+    as something worth a card: say what the error means and the likely cause/fix, and look up \
+    matching tickets, known bugs, or docs with your tools when they apply. If the screen just \
+    shows ordinary, unremarkable content, ignore it and decide based on the transcript.
+    """
 
     /// Last ~10 non-empty lines of the transcript, used to give the nudge prompt something to
     /// visually emphasize as "focus here" separate from the full transcript included for context.
@@ -264,11 +308,17 @@ final class ProactiveAnalyzer {
     {"kind": "answer" | "clarification" | "factCheck", "title": "<=8 words", "body": "1-3 sentences"}
     """
 
-    private static func userPrompt(recentTranscript: String, recentContext: String, contextPreamble: String, recentCards: [String]) -> String {
+    private static func userPrompt(recentTranscript: String, recentContext: String, contextPreamble: String, recentCards: [String], screenChanged: Bool) -> String {
         let preamble = contextPreamble.isEmpty ? "" : "\(contextPreamble)\n\n"
         let context = recentContext.isEmpty ? "" : "Recent transcript (context, already reviewed on earlier checks):\n\(recentContext)\n\n"
         let cards = recentCards.isEmpty ? "" : "Cards you already surfaced (do not repeat these):\n- \(recentCards.joined(separator: "\n- "))\n\n"
-        return "\(preamble)\(context)\(cards)New transcript since your last check (evaluate this):\n\(recentTranscript)"
+        let speech = recentTranscript.isEmpty
+            ? "No new speech since your last check."
+            : "New transcript since your last check (evaluate this):\n\(recentTranscript)"
+        let screenNote = screenChanged
+            ? "\n\nThe user's screen just changed meaningfully; the new screen is attached below. Evaluate it too."
+            : ""
+        return "\(preamble)\(context)\(cards)\(speech)\(screenNote)"
     }
 
     private static let nudgeSystemPrompt = """

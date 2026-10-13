@@ -37,6 +37,8 @@ struct LLMMessage: Sendable {
         case text(String)
         case toolUse(LLMToolCall)
         case toolResult(LLMToolResult)
+        /// An inline image (e.g. a screen snapshot). Backends without vision drop it.
+        case image(data: Data, mimeType: String)
     }
     var role: LLMRole
     var content: [Content]

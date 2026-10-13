@@ -55,6 +55,14 @@ struct SettingsView: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
 
+                    Toggle("Watch my screen during meetings", isOn: Binding(
+                        get: { Settings.shared.screenWatchEnabled },
+                        set: { Settings.shared.screenWatchEnabled = $0 }
+                    ))
+                    Text("While a meeting is running, Clyde looks at the display your mouse is on (about every 1.5s) so suggestions and chat can react to what's on screen, like an error being reproduced. Frames stay in memory only, Clyde's own panel is excluded, and capture pauses while a password manager is in front. Needs Screen Recording permission. Takes effect on the next meeting.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+
                     Toggle("Show screenshot button", isOn: Binding(
                         get: { Settings.shared.showScreenshotButton },
                         set: { Settings.shared.showScreenshotButton = $0 }

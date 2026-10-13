@@ -119,6 +119,11 @@ final class AnthropicClient: LLMBackend, @unchecked Sendable {
                     "content": result.content,
                     "is_error": result.isError
                 ])
+            case .image(let data, let mimeType):
+                blocks.append([
+                    "type": "image",
+                    "source": ["type": "base64", "media_type": mimeType, "data": data.base64EncodedString()]
+                ])
             }
         }
         return ["role": message.role.rawValue, "content": blocks]
