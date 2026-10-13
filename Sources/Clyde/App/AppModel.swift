@@ -557,9 +557,30 @@ final class AppModel {
         case failed(String)
     }
 
-    /// One briefing per calendar event id, kept for the app session so re-opening the sheet is
-    /// instant. Regenerating replaces the cached one.
-    private(set) var meetingPreps: [String: MeetingPrepState] = [:]
+    /// One briefing per calendar event id. Finished briefs are persisted (MeetingPrepStore) and
+    /// restored on launch, so Prep is instant for any meeting already prepped. Regenerating
+    /// replaces the stored one.
+    private(set) var meetingPreps: [String: MeetingPrepState] = MeetingPrepStore.load().mapValues { .ready($0.brief) } {
+        didSet { persistMeetingPreps() }
+    }
+
+    private func persistMeetingPreps() {
+        var existing = MeetingPrepStore.load()
+        for (id, state) in meetingPreps {
+            if case .ready(let brief) = state {
+                if existing[id]?.brief != brief {
+                    existing[id] = MeetingPrepStore.Entry(brief: brief, generatedAt: Date())
+                }
+            }
+        }
+        // Drop stored briefs that were invalidated (removed) in memory.
+        existing = existing.filter { id, _ in
+            if case .ready? = meetingPreps[id] { return true }
+            if case .generating? = meetingPreps[id] { return true }
+            return false
+        }
+        MeetingPrepStore.save(existing)
+    }
 
     /// The event whose prep sheet is currently shown, if any (drives `.sheet(item:)`).
     var presentedPrepEvent: CalendarEvent?
