@@ -31,7 +31,7 @@ cp "$ROOT/Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 
 # SPM resource bundles from dependencies (e.g. FluidAudio's) — Bundle.module resolves them
 # relative to the app's Resources dir at runtime.
-for bundle in "$BIN_PATH"/*.bundle; do
+for bundle in "$BIN_PATH"/*.bundle(N); do
     [ -e "$bundle" ] && cp -R "$bundle" "$APP_BUNDLE/Contents/Resources/"
 done
 
@@ -42,7 +42,14 @@ echo "==> Codesigning"
 #   Keychain Access > Certificate Assistant > Create a Certificate…
 #     Name: Clyde Local Dev, Identity Type: Self Signed Root, Certificate Type: Code Signing
 IDENTITY="${CLYDE_CODESIGN_IDENTITY:-Clyde Local Dev}"
-if ! security find-identity -v -p codesigning 2>/dev/null | grep -q "$IDENTITY"; then
+# The identity lives in a dedicated keychain whose random password is stored in the login
+# keychain (item "clyde-codesign-keychain"); unlock it non-interactively so codesign never prompts.
+# The cert is self-signed and untrusted, so look it up without -v (codesign signs with it fine).
+SIGN_KC="$HOME/Library/Keychains/clyde-codesign2.keychain-db"
+if [ -f "$SIGN_KC" ] && KC_PW="$(security find-generic-password -a clyde -s clyde-codesign-keychain -w 2>/dev/null)"; then
+    security unlock-keychain -p "$KC_PW" "$SIGN_KC"
+fi
+if ! security find-identity -p codesigning 2>/dev/null | grep -q "$IDENTITY"; then
     echo "warning: codesigning identity '$IDENTITY' not found; falling back to ad-hoc (-)."
     echo "         TCC permission grants (mic, system audio) will NOT persist across rebuilds until you create one."
     echo "         See the comment above this line in build.sh for how to create it once."
