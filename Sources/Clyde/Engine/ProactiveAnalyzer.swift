@@ -126,6 +126,9 @@ final class ProactiveAnalyzer {
         if !meetingContext.userProvidedContext.isEmpty {
             parts.append("Background the user provided about this meeting before it started:\n\(meetingContext.userProvidedContext)")
         }
+        if !meetingContext.calendarEventContext.isEmpty {
+            parts.append(meetingContext.calendarEventContext)
+        }
         if !meetingContext.priorMeetingContext.isEmpty {
             parts.append(meetingContext.priorMeetingContext)
         }

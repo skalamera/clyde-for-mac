@@ -46,7 +46,8 @@ final class ChatViewModel {
             let system = Self.systemPrompt(
                 transcript: meetingContext.finalizedTranscriptText,
                 priorMeetingContext: meetingContext.priorMeetingContext,
-                userProvidedContext: meetingContext.userProvidedContext
+                userProvidedContext: meetingContext.userProvidedContext,
+                calendarEventContext: meetingContext.calendarEventContext
             )
             let updatedHistory = try await runner.run(
                 system: system,
@@ -82,7 +83,7 @@ final class ChatViewModel {
         history.removeAll()
     }
 
-    private static func systemPrompt(transcript: String, priorMeetingContext: String, userProvidedContext: String) -> String {
+    private static func systemPrompt(transcript: String, priorMeetingContext: String, userProvidedContext: String, calendarEventContext: String) -> String {
         """
         You are Clyde, a live meeting copilot embedded in a translucent overlay only the current \
         user can see — the other meeting participants never see this window, even if the user is \
@@ -97,6 +98,7 @@ final class ChatViewModel {
         independent lookups in parallel in the same turn), then answer. Never keep searching \
         across sources for marginal extra detail; a short answer now beats a perfect one later.
         \(userProvidedContext.isEmpty ? "" : "\nThe user told you this about the meeting before it started — treat it as reliable background, not something said in the meeting itself:\n\(userProvidedContext)\n")
+        \(calendarEventContext.isEmpty ? "" : "\n" + calendarEventContext + "\n")
         \(priorMeetingContext.isEmpty ? "" : "\n" + priorMeetingContext + "\n")
         --- LIVE TRANSCRIPT ---
         \(transcript.isEmpty ? "(nothing transcribed yet)" : transcript)

@@ -58,6 +58,44 @@ final class AppModel {
     /// the same identity so IT becomes findable next time.
     private var currentMeetingCalendarTitle: String?
     private var currentMeetingRecurringEventId: String?
+    /// The calendar event the active meeting was started from (nil for manual starts).
+    private var currentMeetingEvent: CalendarEvent?
+
+    /// The event this meeting is for: the one it was started from, else the timed calendar
+    /// event happening now (started up to 10 min early or still running), preferring the one
+    /// whose start is closest to now.
+    private func eventForCurrentMeeting() -> CalendarEvent? {
+        if let currentMeetingEvent { return currentMeetingEvent }
+        let now = Date()
+        return calendarEvents
+            .filter { !$0.allDay && $0.start.addingTimeInterval(-10 * 60) <= now && $0.end >= now }
+            .min { abs($0.start.timeIntervalSince(now)) < abs($1.start.timeIntervalSince(now)) }
+    }
+
+    private func calendarEventContext(for event: CalendarEvent) -> String {
+        let timeFormatter = DateFormatter()
+        timeFormatter.dateStyle = .medium
+        timeFormatter.timeStyle = .short
+        var lines = ["CALENDAR EVENT for this meeting (reliable; use it to identify who people are):",
+                     "Title: \(event.title)",
+                     "When: \(timeFormatter.string(from: event.start))"]
+        if let organizer = event.organizer { lines.append("Organizer: \(organizer)") }
+        let others = event.attendees.filter { !$0.isSelf }
+        if !others.isEmpty {
+            lines.append("Attendees (besides the user): " + others.map { a in
+                (a.displayName.map { "\($0) <\(a.email)>" } ?? a.email)
+                    + (a.responseStatus == "declined" ? " (declined)" : "")
+            }.joined(separator: ", "))
+            lines.append("An attendee's company can usually be inferred from their email domain.")
+        }
+        if let description = effectiveDescription(for: event), !description.isEmpty {
+            lines.append("Description/agenda: \(description)")
+        }
+        if case .ready(let brief)? = meetingPreps[event.id] {
+            lines.append("PREP BRIEFING generated earlier for this meeting:\n\(brief)")
+        }
+        return lines.joined(separator: "\n")
+    }
 
     /// Set by `AppDelegate` once the overlay panel exists, so Settings (which only knows about
     /// `AppModel`, not AppKit window objects) can toggle the panel's live capture-exclusion
@@ -240,6 +278,7 @@ final class AppModel {
         activeTab = .live
         currentMeetingCalendarTitle = event.title
         currentMeetingRecurringEventId = event.recurringEventId
+        currentMeetingEvent = event
         await startMeeting(userContext: userContext)
     }
 
@@ -256,6 +295,15 @@ final class AppModel {
             calendarTitle: currentMeetingCalendarTitle,
             recurringEventId: currentMeetingRecurringEventId
         )
+        if let event = eventForCurrentMeeting() {
+            currentMeetingEvent = event
+            meetingContext.calendarEventContext = calendarEventContext(for: event)
+            if currentMeetingCalendarTitle == nil {
+                // Manual start that matched a live calendar event: tag it like a calendar start.
+                currentMeetingCalendarTitle = event.title
+                currentMeetingRecurringEventId = event.recurringEventId
+            }
+        }
         meetingStatusMessage = "Requesting permissions…"
 
         Log.audio.info("startMeeting() called — requesting microphone access…")
@@ -384,6 +432,7 @@ final class AppModel {
         let userContext = meetingContext.userProvidedContext
         currentMeetingCalendarTitle = nil
         currentMeetingRecurringEventId = nil
+        currentMeetingEvent = nil
 
         // The Live tab (transcript + suggestion cards) is meeting-scoped — clear it now rather
         // than leaving the last meeting's content sitting there until the next one starts.
@@ -608,6 +657,10 @@ final class AppModel {
                 let generator = MeetingPrepGenerator(router: llmRouter, mcp: mcp)
                 let brief = try await generator.generate(event: enrichedEvent, priorNotes: priorNotes)
                 meetingPreps[event.id] = .ready(brief)
+                // Prep finished mid-meeting for the meeting in progress: feed it to chat now.
+                if isMeetingActive, currentMeetingEvent?.id == event.id {
+                    meetingContext.calendarEventContext = calendarEventContext(for: event)
+                }
             } catch {
                 meetingPreps[event.id] = .failed(error.localizedDescription)
                 Log.llm.error("Meeting prep failed: \(error.localizedDescription, privacy: .public)")

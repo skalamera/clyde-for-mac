@@ -32,6 +32,12 @@ final class MeetingContext {
     /// and MeetingSummarizer alongside `priorMeetingContext`.
     var userProvidedContext: String = ""
 
+    /// The calendar event this meeting corresponds to (title, time, attendees with emails) plus
+    /// its saved Prep briefing if one exists. Set by `AppModel.startMeeting()` — either from the
+    /// event the meeting was started from, or the calendar event happening right now. Lets chat
+    /// answer "who is X / what company" without any tool lookups.
+    var calendarEventContext: String = ""
+
     /// Text of only the finalized segments, oldest-first, formatted for use as LLM context.
     var finalizedTranscriptText: String {
         segments
@@ -140,5 +146,6 @@ final class MeetingContext {
         analyzedSegmentIDs.removeAll()
         priorMeetingContext = ""
         userProvidedContext = ""
+        calendarEventContext = ""
     }
 }
