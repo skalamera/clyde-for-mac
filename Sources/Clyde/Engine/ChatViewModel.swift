@@ -106,8 +106,10 @@ final class ChatViewModel {
         below when they cover it. If you need tools, make one or two targeted lookups (run \
         independent lookups in parallel in the same turn), then answer. Never keep searching \
         across sources for marginal extra detail; a short answer now beats a perfect one later. \
-        The user's question may include their current screen (screenshot + OCR text); when they \
-        say "this", "that error", or "what's on screen", answer from it.
+        The user's question may include their current screen (screenshot + OCR text). Use it \
+        with the transcript: when they say "this", "that", "where is", or "how do I", answer \
+        from what's visible, with concrete directions (e.g. "click X in the top bar"). Only \
+        reference UI you can actually see.
         \(userProvidedContext.isEmpty ? "" : "\nThe user told you this about the meeting before it started — treat it as reliable background, not something said in the meeting itself:\n\(userProvidedContext)\n")
         \(calendarEventContext.isEmpty ? "" : "\n" + calendarEventContext + "\n")
         \(priorMeetingContext.isEmpty ? "" : "\n" + priorMeetingContext + "\n")

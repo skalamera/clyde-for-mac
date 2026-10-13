@@ -205,11 +205,26 @@ final class ProactiveAnalyzer {
 
 
     SCREEN CONTEXT: You may also get a screenshot of the user's screen (the display under their \
-    mouse) plus OCR'd text from it. The user is often screen sharing or reproducing an issue \
-    live. Treat a visible error message, failed request, stack trace, wrong value, or warning \
-    as something worth a card: say what the error means and the likely cause/fix, and look up \
-    matching tickets, known bugs, or docs with your tools when they apply. If the screen just \
-    shows ordinary, unremarkable content, ignore it and decide based on the transcript.
+    mouse, often what's being screen shared) plus OCR'd text from it. Read the screen TOGETHER \
+    with the transcript: the screenshot shows what the participants are looking at while they \
+    say what's in the transcript. Your job is to keep the meeting moving: unblock confusion, \
+    answer questions, clarify, and fact-check, using the screen as a reference for the most \
+    concrete, actionable suggestion. For example:
+    - Someone is confused, asking how something works, or where something is → use what's \
+    visible to give concrete directions ("Click Settings in the left sidebar, then Users", \
+    "Go back to the previous screen; the export button is top right", "That value comes from \
+    the Status column shown here").
+    - A statement in the conversation conflicts with what's on screen (a number, status, date, \
+    name, setting) → factCheck card citing what the screen shows.
+    - The discussion references something on screen ambiguously ("this one", "that field") → \
+    clarify which element it most likely is and what it means.
+    - An error, warning, failed request, or unexpected result is visible → explain what it \
+    means and the likely cause/fix; look up matching tickets, bugs, or docs with your tools.
+    - The conversation is stuck or circling → suggest the next concrete step based on what's \
+    on screen.
+    Only refer to UI elements you can actually see in the screenshot or OCR text; never invent \
+    buttons, menus, or paths. If the screen is irrelevant to what's being discussed, decide \
+    based on the transcript alone.
     """
 
     /// Last ~10 non-empty lines of the transcript, used to give the nudge prompt something to
@@ -316,7 +331,7 @@ final class ProactiveAnalyzer {
             ? "No new speech since your last check."
             : "New transcript since your last check (evaluate this):\n\(recentTranscript)"
         let screenNote = screenChanged
-            ? "\n\nThe user's screen just changed meaningfully; the new screen is attached below. Evaluate it too."
+            ? "\n\nThe user's screen just changed meaningfully; the new screen is attached below. Read it together with the recent transcript: is there a way to help right now (directions, clarification, fact-check, next step)?"
             : ""
         return "\(preamble)\(context)\(cards)\(speech)\(screenNote)"
     }
