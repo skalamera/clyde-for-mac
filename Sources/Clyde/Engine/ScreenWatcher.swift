@@ -149,6 +149,10 @@ final class ScreenWatcher {
             let front = environment.frontmostApp()
             let thumb = Self.thumbnail(of: image)
             if let previous = lastThumbnail, Self.meanDifference(previous, thumb) < changeThreshold {
+                // Same screen, successfully observed again: it's still current, so keep it
+                // fresh (the 120 s cutoff is for screens we stopped seeing) without counting
+                // a change.
+                latest?.capturedAt = environment.now()
                 return
             }
             lastThumbnail = thumb
