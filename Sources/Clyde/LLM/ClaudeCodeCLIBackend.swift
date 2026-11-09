@@ -11,12 +11,14 @@ import Foundation
 /// parse. The one user-visible cost is that this backend's replies arrive all-at-once rather
 /// than token-by-token — acceptable for a fallback path.
 ///
-/// This backend does not use Clyde's in-app MCP tool-use loop (`tools` is ignored) — instead,
+/// This backend does not use Clyde's in-app MCP tool-use loop (`tools` is ignored, except as the
+/// allow-list when `LLMRequestOptions.restrictToOfferedTools` is set) — instead,
 /// Clyde's configured MCP servers are handed to the CLI itself via `--mcp-config`, regenerated
 /// per request so OAuth-protected servers get whatever access token Clyde's own connections
 /// most recently stored/refreshed. `--strict-mcp-config` keeps the CLI from also loading the
 /// user's personal Claude Code MCP setup (which could be large and slow every request), and
-/// `--allowedTools mcp__<server>` grants headless permission to each server's tools.
+/// `--allowedTools mcp__<server>` grants headless permission to each server's tools (or only
+/// the offered `mcp__<server>__<tool>` tools for restricted requests).
 final class ClaudeCodeCLIBackend: LLMBackend, @unchecked Sendable {
     private let executableURL: URL?
 
@@ -49,7 +51,7 @@ final class ClaudeCodeCLIBackend: LLMBackend, @unchecked Sendable {
                     if !model.isEmpty {
                         arguments += ["--model", model]
                     }
-                    arguments += Self.mcpArguments()
+                    arguments += Self.mcpArguments(offeredTools: options.restrictToOfferedTools ? tools : nil)
                     process.arguments = arguments
 
                     let stdout = Pipe()
@@ -106,8 +108,9 @@ final class ClaudeCodeCLIBackend: LLMBackend, @unchecked Sendable {
     /// own MCP servers to the CLI. Regenerated on every request: OAuth access tokens rotate
     /// (Clyde's in-app connections refresh them), so the config must snapshot the *current*
     /// stored token, not one from launch time. An OAuth server whose token is missing is
-    /// skipped — the CLI can't run Clyde's interactive browser login itself.
-    private static func mcpArguments() -> [String] {
+    /// skipped — the CLI can't run Clyde's interactive browser login itself. With
+    /// `offeredTools`, only those exact tools are exposed (see `allowedTools`).
+    private static func mcpArguments(offeredTools: [LLMTool]?) -> [String] {
         var mcpServers: [String: Any] = [:]
         for config in MCPConfigStore.load() where config.enabled {
             switch config.transport {
@@ -131,6 +134,12 @@ final class ClaudeCodeCLIBackend: LLMBackend, @unchecked Sendable {
             }
         }
         guard !mcpServers.isEmpty else { return [] }
+        let allowed = allowedTools(servers: Array(mcpServers.keys), offered: offeredTools)
+        guard !allowed.isEmpty else { return [] }
+        if offeredTools != nil {
+            // Don't even load servers none of whose tools were offered.
+            mcpServers = mcpServers.filter { name, _ in allowed.contains { $0.hasPrefix("mcp__\(name)__") } }
+        }
 
         // Same directory + permissions as secrets.json — the config embeds bearer tokens.
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -146,8 +155,19 @@ final class ClaudeCodeCLIBackend: LLMBackend, @unchecked Sendable {
             return []
         }
 
-        let allowedTools = mcpServers.keys.sorted().map { "mcp__\($0)" }.joined(separator: ",")
-        return ["--mcp-config", configURL.path, "--strict-mcp-config", "--allowedTools", allowedTools]
+        return ["--mcp-config", configURL.path, "--strict-mcp-config", "--allowedTools", allowed.joined(separator: ",")]
+    }
+
+    /// The `--allowedTools` entries. `offered == nil` grants every tool of every server
+    /// (`mcp__<server>`), as user-driven turns always have. Otherwise exactly the offered tools
+    /// (`mcp__<server>__<tool>`, Claude Code's MCP tool naming, which matches Clyde's qualified
+    /// names), so a pass limited to read-only tools can't reach a write tool through the CLI.
+    static func allowedTools(servers: [String], offered: [LLMTool]?) -> [String] {
+        guard let offered else { return servers.sorted().map { "mcp__\($0)" } }
+        return offered
+            .filter { tool in servers.contains { tool.name.hasPrefix("\($0)__") } }
+            .map { "mcp__\($0.name)" }
+            .sorted()
     }
 
     /// Reads the access token Clyde's own OAuth flow stored for `serverName` (see

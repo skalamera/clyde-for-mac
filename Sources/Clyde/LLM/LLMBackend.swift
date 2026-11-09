@@ -60,8 +60,12 @@ enum LLMStreamEvent: Sendable {
 struct LLMRequestOptions: Sendable {
     var maxTokens: Int = 1024
     var enableThinking: Bool = false
+    /// The `tools` passed with the request are the complete set the turn may use. Backends that
+    /// run tools themselves (the Claude Code CLI) must not expose anything beyond them. Set for
+    /// unattended passes, which are only offered read-only tools.
+    var restrictToOfferedTools: Bool = false
 
-    static let proactive = LLMRequestOptions(maxTokens: 1024, enableThinking: false)
+    static let proactive = LLMRequestOptions(maxTokens: 1024, enableThinking: false, restrictToOfferedTools: true)
     static let chat = LLMRequestOptions(maxTokens: 4096, enableThinking: false)
     /// Transcript refinement rewrites its input in full, so the output cap must comfortably
     /// exceed the per-chunk input size (see TranscriptRefiner.chunkCharacterLimit).

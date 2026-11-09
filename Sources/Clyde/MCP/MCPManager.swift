@@ -131,6 +131,19 @@ actor MCPManager {
             .sorted { $0.name < $1.name }
     }
 
+    /// Only the tools whose server marks them read-only (`readOnlyHint == true`; an absent hint
+    /// means "may write", per the MCP spec). Offered to passes nobody asked for (proactive
+    /// suggestions), which read untrusted text such as screen OCR and calendar invites.
+    var readOnlyTools: [LLMTool] {
+        connections.values
+            .flatMap { connection in
+                connection.tools
+                    .filter { $0.annotations.readOnlyHint == true }
+                    .map { ToolBridge.llmTool(from: $0, server: connection.config.name) }
+            }
+            .sorted { $0.name < $1.name }
+    }
+
     var connectedServerNames: [String] {
         Array(connections.keys).sorted()
     }

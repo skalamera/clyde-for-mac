@@ -87,12 +87,18 @@ struct ConversationRunner: Sendable {
             Log.llm.info("Tool round \(round, privacy: .public)/\(maxToolRounds, privacy: .public): \(names, privacy: .public)")
 
             // Run this round's tool calls in parallel, keeping results in call order. Calls to
-            // the same server are queued one at a time inside MCPManager.callTool.
+            // the same server are queued one at a time inside MCPManager.callTool. Only tools
+            // this turn offered may run: a pass restricted to read-only tools must not execute a
+            // write tool just because the model (or injected text) named one.
             let mcp = self.mcp
+            let offered = Set(tools.map(\.name))
             let results = await withTaskGroup(of: (Int, LLMToolResult).self) { group in
                 for (index, call) in toolCalls.enumerated() {
                     group.addTask {
-                        (index, await mcp.callTool(toolUseID: call.id, qualifiedName: call.name, arguments: call.input))
+                        guard offered.contains(call.name) else {
+                            return (index, LLMToolResult(toolUseID: call.id, content: "Tool not available in this conversation: \(call.name)", isError: true))
+                        }
+                        return (index, await mcp.callTool(toolUseID: call.id, qualifiedName: call.name, arguments: call.input))
                     }
                 }
                 var collected: [(Int, LLMToolResult)] = []
