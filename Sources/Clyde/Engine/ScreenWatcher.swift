@@ -18,11 +18,13 @@ struct ScreenSnapshot: Sendable {
 ///
 /// Design:
 ///   - Polls a still frame every `pollInterval` via ScreenCaptureKit from whichever display the
-///     mouse is on. Clyde's own windows are excluded from the capture filter.
+///     mouse is on. Clyde's own windows and password managers' windows are excluded from the
+///     capture filter.
 ///   - Compares a tiny grayscale thumbnail against the last kept frame; only a meaningful
 ///     change becomes a new `ScreenSnapshot` (cursor blinks / clock ticks are ignored).
 ///   - On a kept change, runs on-device OCR so the text on screen can go to any backend as text.
-///   - Pauses while a password manager / sensitive app is frontmost.
+///   - Pauses while a password manager / sensitive app is frontmost (checked before and after
+///     each capture) and drops the last frame when it does.
 /// `changeGeneration` increments on every kept change so ProactiveAnalyzer can tell "the
 /// screen changed since my last pass" without any callback plumbing.
 @MainActor
@@ -81,8 +83,9 @@ final class ScreenWatcher {
     private let changeThreshold: Double = 3.0
     private let maxImageWidth: Int = 1440
 
-    /// Frontmost apps during which nothing is captured.
-    static let sensitiveBundleIDs: Set<String> = [
+    /// Password managers: capture pauses while one is frontmost, and their windows are excluded
+    /// from every capture.
+    nonisolated static let sensitiveBundleIDs: Set<String> = [
         "com.1password.1password", "com.agilebits.onepassword7", "com.agilebits.onepassword-osx",
         "com.bitwarden.desktop", "com.lastpass.LastPass", "com.dashlane.dashlanephonefinal",
         "com.apple.keychainaccess", "com.apple.Passwords"
@@ -128,9 +131,8 @@ final class ScreenWatcher {
 
     private func tick(session tickSession: Int) async {
         guard isCurrent(tickSession) else { return }
-        let front = environment.frontmostApp()
-        if let bundleID = front.bundleID, Self.sensitiveBundleIDs.contains(bundleID) {
-            isPausedForPrivacy = true
+        if sensitiveAppIsFrontmost() {
+            pauseForPrivacy()
             return
         }
         isPausedForPrivacy = false
@@ -138,6 +140,13 @@ final class ScreenWatcher {
         do {
             guard let image = try await environment.captureDisplayUnderMouse(maxImageWidth) else { return }
             guard isCurrent(tickSession) else { return }
+            // Re-check after the capture suspensions: the user may have switched to a vault
+            // mid-capture. (Its windows are also excluded in the capture filter itself.)
+            if sensitiveAppIsFrontmost() {
+                pauseForPrivacy()
+                return
+            }
+            let front = environment.frontmostApp()
             let thumb = Self.thumbnail(of: image)
             if let previous = lastThumbnail, Self.meanDifference(previous, thumb) < changeThreshold {
                 return
@@ -146,6 +155,10 @@ final class ScreenWatcher {
             guard let jpeg = Self.jpegData(image) else { return }
             let text = await environment.recognizeText(image)
             guard isCurrent(tickSession) else { return }
+            if sensitiveAppIsFrontmost() {
+                pauseForPrivacy()
+                return
+            }
             latest = ScreenSnapshot(jpeg: jpeg, ocrText: text, frontmostApp: front.name, capturedAt: environment.now())
             changeGeneration += 1
             lastChangeAt = environment.now()
@@ -159,6 +172,26 @@ final class ScreenWatcher {
         }
     }
 
+    private func sensitiveAppIsFrontmost() -> Bool {
+        environment.frontmostApp().bundleID.map(Self.sensitiveBundleIDs.contains) ?? false
+    }
+
+    /// Nothing captured before or during the pause may outlive it: drop the last frame (so the
+    /// analyzer and chat can't attach it) and the change baseline (so the screen is picked up
+    /// fresh when the pause ends).
+    private func pauseForPrivacy() {
+        isPausedForPrivacy = true
+        latest = nil
+        lastThumbnail = nil
+    }
+
+    /// Applications whose windows the capture filter removes: Clyde itself and password
+    /// managers. Enforced by WindowServer at grab time, so a vault window is blanked whether or
+    /// not it's frontmost and regardless of when it appeared during the capture awaits.
+    nonisolated static func isExcludedFromCapture(bundleIdentifier: String, processID: pid_t, ownPID: pid_t) -> Bool {
+        processID == ownPID || sensitiveBundleIDs.contains(bundleIdentifier)
+    }
+
     private static func captureDisplayUnderMouse(maxImageWidth: Int) async throws -> CGImage? {
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main
@@ -167,8 +200,10 @@ final class ScreenWatcher {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         guard let display = content.displays.first(where: { $0.displayID == displayID }) else { return nil }
         let ownPID = ProcessInfo.processInfo.processIdentifier
-        let ownApps = content.applications.filter { $0.processID == ownPID }
-        let filter = SCContentFilter(display: display, excludingApplications: ownApps, exceptingWindows: [])
+        let excludedApps = content.applications.filter {
+            isExcludedFromCapture(bundleIdentifier: $0.bundleIdentifier, processID: $0.processID, ownPID: ownPID)
+        }
+        let filter = SCContentFilter(display: display, excludingApplications: excludedApps, exceptingWindows: [])
 
         let config = SCStreamConfiguration()
         let scale = min(1.0, Double(maxImageWidth) / Double(display.width))
