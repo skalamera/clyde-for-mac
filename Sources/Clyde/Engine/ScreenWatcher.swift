@@ -94,10 +94,12 @@ final class ScreenWatcher {
         environment.ensureCaptureAccess()
         isWatching = true
         lastError = nil
+        session += 1
+        let currentSession = session
         let pollInterval = environment.pollInterval
         loopTask = Task { [weak self] in
             while !Task.isCancelled {
-                await self?.tick()
+                await self?.tick(session: currentSession)
                 try? await Task.sleep(for: pollInterval)
             }
         }
@@ -107,6 +109,7 @@ final class ScreenWatcher {
     func stop() {
         loopTask?.cancel()
         loopTask = nil
+        session += 1
         isWatching = false
         isPausedForPrivacy = false
         latest = nil
@@ -114,7 +117,17 @@ final class ScreenWatcher {
         Log.app.info("Screen watcher stopped")
     }
 
-    private func tick() async {
+    /// Bumped by every start() and stop(). A tick may only touch state while the session it was
+    /// started in is still current: capture and OCR suspend for hundreds of ms, and a stop (or a
+    /// stop followed by a new start) during that window must win over the late result.
+    private var session = 0
+
+    private func isCurrent(_ tickSession: Int) -> Bool {
+        !Task.isCancelled && tickSession == session
+    }
+
+    private func tick(session tickSession: Int) async {
+        guard isCurrent(tickSession) else { return }
         let front = environment.frontmostApp()
         if let bundleID = front.bundleID, Self.sensitiveBundleIDs.contains(bundleID) {
             isPausedForPrivacy = true
@@ -124,6 +137,7 @@ final class ScreenWatcher {
 
         do {
             guard let image = try await environment.captureDisplayUnderMouse(maxImageWidth) else { return }
+            guard isCurrent(tickSession) else { return }
             let thumb = Self.thumbnail(of: image)
             if let previous = lastThumbnail, Self.meanDifference(previous, thumb) < changeThreshold {
                 return
@@ -131,11 +145,13 @@ final class ScreenWatcher {
             lastThumbnail = thumb
             guard let jpeg = Self.jpegData(image) else { return }
             let text = await environment.recognizeText(image)
+            guard isCurrent(tickSession) else { return }
             latest = ScreenSnapshot(jpeg: jpeg, ocrText: text, frontmostApp: front.name, capturedAt: environment.now())
             changeGeneration += 1
             lastChangeAt = environment.now()
             lastError = nil
         } catch {
+            guard isCurrent(tickSession) else { return }
             if lastError != error.localizedDescription {
                 Log.app.error("Screen capture failed: \(error.localizedDescription, privacy: .public)")
             }
