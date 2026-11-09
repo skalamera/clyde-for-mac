@@ -281,18 +281,32 @@ final class AppModel {
     /// summary gets tagged for future ones to find.
     private func startMeetingFromCalendar(_ event: CalendarEvent, userContext: String) async {
         activeTab = .live
-        currentMeetingCalendarTitle = event.title
-        currentMeetingRecurringEventId = event.recurringEventId
-        currentMeetingEvent = event
-        await startMeeting(userContext: userContext)
+        await startMeeting(userContext: userContext, calendarEvent: event)
     }
 
     func reloadMCPServers() async {
         await mcp.reload(MCPConfigStore.load())
     }
 
-    func startMeeting(userContext: String = "") async {
+    func startMeeting(userContext: String = "", calendarEvent: CalendarEvent? = nil) async {
         guard !isMeetingActive else { return }
+        // Any exit before the meeting actually becomes active (mic denied, transcriber, mic or
+        // system-tap failure) must not leave this attempt's event identity behind: the next,
+        // unrelated start would otherwise reuse it (eventForCurrentMeeting prefers it), and chat
+        // outside a meeting reads the context.
+        defer {
+            if !isMeetingActive {
+                currentMeetingEvent = nil
+                currentMeetingCalendarTitle = nil
+                currentMeetingRecurringEventId = nil
+                meetingContext.calendarEventContext = ""
+                meetingContext.priorMeetingContext = ""
+            }
+        }
+        // This attempt's identity, fresh every time (a manual start matches a live event below).
+        currentMeetingEvent = calendarEvent
+        currentMeetingCalendarTitle = calendarEvent?.title
+        currentMeetingRecurringEventId = calendarEvent?.recurringEventId
         meetingContext.reset()
         meetingContext.userProvidedContext = userContext
         meetingContext.priorMeetingContext = Self.priorMeetingContext(
