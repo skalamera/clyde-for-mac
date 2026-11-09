@@ -309,11 +309,6 @@ final class AppModel {
         currentMeetingRecurringEventId = calendarEvent?.recurringEventId
         meetingContext.reset()
         meetingContext.userProvidedContext = userContext
-        meetingContext.priorMeetingContext = Self.priorMeetingContext(
-            in: notes,
-            calendarTitle: currentMeetingCalendarTitle,
-            recurringEventId: currentMeetingRecurringEventId
-        )
         if let event = eventForCurrentMeeting() {
             currentMeetingEvent = event
             meetingContext.calendarEventContext = calendarEventContext(for: event)
@@ -323,6 +318,13 @@ final class AppModel {
                 currentMeetingRecurringEventId = event.recurringEventId
             }
         }
+        // After the event match above, so a manual start that matched a standing meeting gets
+        // that series' prior notes too.
+        meetingContext.priorMeetingContext = Self.priorMeetingContext(
+            in: notes,
+            calendarTitle: currentMeetingCalendarTitle,
+            recurringEventId: currentMeetingRecurringEventId
+        )
         meetingStatusMessage = "Requesting permissions…"
 
         Log.audio.info("startMeeting() called — requesting microphone access…")
@@ -511,8 +513,8 @@ final class AppModel {
     /// their summaries/action items as context — this is Clyde's "memory" of prior occurrences.
     /// Deliberately excludes full past transcripts to keep prompt size sane; the Notes tab is
     /// where the complete detail lives if the user wants it. Nothing is looked up (empty string)
-    /// when the meeting wasn't started from a calendar event, since there's no known series to
-    /// match against.
+    /// when the meeting has no calendar event (neither started from one nor matched to one
+    /// happening now), since there's no known series to match against.
     /// All saved notes belonging to the same standing meeting (by recurring-series id when
     /// available, else exact calendar-title match), oldest-first. Shared by the prior-context
     /// block fed into a starting meeting and by meeting prep.

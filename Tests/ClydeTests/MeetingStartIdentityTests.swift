@@ -59,6 +59,33 @@ import Testing
         #expect(model.meetingContext.calendarEventContext.isEmpty)
         #expect(model.meetingContext.priorMeetingContext.isEmpty)
     }
+
+    // MARK: CRIT-43
+
+    @Test func manualStartMatchingARecurringEventGetsPriorNotes() async {
+        let model = AppModel()
+        let live = Self.event("routing-check-weekly", "Weekly Sync", startOffset: -120, recurring: "routing-check-series-1")
+        let prior = MeetingNote(
+            startedAt: Date().addingTimeInterval(-7 * 86400), endedAt: Date().addingTimeInterval(-7 * 86400 + 1800),
+            title: "Weekly Sync", summary: "Agreed to ship the export fix by Friday.", keyPoints: [],
+            actionItems: [ActionItem(description: "Send the export fix ETA", owner: "you")],
+            transcript: "", calendarEventTitle: "Weekly Sync", recurringEventId: "routing-check-series-1"
+        )
+        model.seedForTesting(notes: [prior], calendarEvents: [live])
+        let seen = Recorded()
+        model.requestMicrophoneAccess = { [unowned model] in
+            seen.values.append(model.meetingContext.priorMeetingContext)
+            return false
+        }
+
+        model.pendingMeetingStart = .manual
+        await model.confirmPendingMeetingStart(userContext: "")
+
+        let priorContext = seen.values.first ?? ""
+        #expect(priorContext.contains("Agreed to ship the export fix by Friday."),
+                "a manual start matched to a standing meeting must get that series' prior notes")
+        #expect(priorContext.contains("Send the export fix ETA"))
+    }
 }
 
 @MainActor
