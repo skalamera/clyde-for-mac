@@ -137,7 +137,19 @@ actor MCPManager {
 
     func callTool(toolUseID: String, qualifiedName: String, arguments: JSONValue) async -> LLMToolResult {
         guard let (serverName, toolName) = ToolBridge.split(qualifiedName: qualifiedName),
-              let connection = connections[serverName] else {
+              connections[serverName] != nil else {
+            return LLMToolResult(toolUseID: toolUseID, content: "No such tool: \(qualifiedName)", isError: true)
+        }
+
+        // One call per server at a time (calls to different servers still overlap). Every call
+        // to a server shares one HTTPClientTransport + OAuthAuthorizer, and the SDK's 401/refresh
+        // handling assumes serial use: it clears the stored token before awaiting the refresh,
+        // so a second concurrent 401 sees no token and starts an interactive browser login
+        // mid-meeting. Serializing here covers every caller (a chat turn's parallel tool calls,
+        // chat and a proactive pass at once, meeting prep).
+        await acquireCallSlot(serverName)
+        defer { releaseCallSlot(serverName) }
+        guard let connection = connections[serverName] else {
             return LLMToolResult(toolUseID: toolUseID, content: "No such tool: \(qualifiedName)", isError: true)
         }
 
@@ -153,6 +165,26 @@ actor MCPManager {
             return LLMToolResult(toolUseID: toolUseID, content: ToolBridge.displayText(for: content), isError: isError ?? false)
         } catch {
             return LLMToolResult(toolUseID: toolUseID, content: "Tool call failed: \(error.localizedDescription)", isError: true)
+        }
+    }
+
+    /// Servers with a call in flight, and the callers queued behind it (FIFO).
+    private var busyServers: Set<String> = []
+    private var callWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
+
+    private func acquireCallSlot(_ server: String) async {
+        if busyServers.insert(server).inserted { return }
+        await withCheckedContinuation { callWaiters[server, default: []].append($0) }
+        // Ownership was handed over by releaseCallSlot; `server` stays in busyServers.
+    }
+
+    private func releaseCallSlot(_ server: String) {
+        if var waiters = callWaiters[server], !waiters.isEmpty {
+            let next = waiters.removeFirst()
+            callWaiters[server] = waiters.isEmpty ? nil : waiters
+            next.resume()
+        } else {
+            busyServers.remove(server)
         }
     }
 

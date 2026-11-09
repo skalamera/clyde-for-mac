@@ -86,7 +86,8 @@ struct ConversationRunner: Sendable {
             let names = toolCalls.map(\.name).joined(separator: ", ")
             Log.llm.info("Tool round \(round, privacy: .public)/\(maxToolRounds, privacy: .public): \(names, privacy: .public)")
 
-            // Run this round's tool calls in parallel, keeping results in call order.
+            // Run this round's tool calls in parallel, keeping results in call order. Calls to
+            // the same server are queued one at a time inside MCPManager.callTool.
             let mcp = self.mcp
             let results = await withTaskGroup(of: (Int, LLMToolResult).self) { group in
                 for (index, call) in toolCalls.enumerated() {
