@@ -44,6 +44,33 @@ import Testing
         #expect(watcher.latest == nil)
         #expect(watcher.changeGeneration == 0)
     }
+
+    // MARK: CRIT-46: a stale tick must not publish into a later watching session
+
+    @Test func staleOCRFromStoppedSessionIsNotPublishedIntoNextSession() async throws {
+        let system = FakeScreenSystem()
+        let firstOCRGate = Gate()
+        let ocrCalls = OCRCounter()
+        let watcher = ScreenWatcher(environment: system.environment(recognizeText: { _ in
+            if await ocrCalls.next() == 1 {
+                await firstOCRGate.pass()   // the first session's OCR is slow
+                return "OLD SESSION"
+            }
+            return "new session"
+        }))
+
+        watcher.start()
+        #expect(await waitUntil { await firstOCRGate.arrivals == 1 })
+        watcher.stop()
+        watcher.start()                     // next meeting starts before the old OCR returns
+        #expect(await waitUntil { watcher.latest?.ocrText == "new session" })
+        await firstOCRGate.open()
+        try await Task.sleep(for: .milliseconds(100))
+
+        #expect(watcher.isWatching)
+        #expect(watcher.latest?.ocrText == "new session", "the stopped session's frame must not overwrite the new one")
+        watcher.stop()
+    }
 }
 
 actor OCRCounter {
