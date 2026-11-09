@@ -19,6 +19,17 @@ let package = Package(
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]
+        ),
+        .testTarget(
+            name: "ClydeTests",
+            dependencies: [
+                "Clyde",
+                .product(name: "MCP", package: "swift-sdk")
+            ],
+            path: "Tests/ClydeTests",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
         )
     ]
 )

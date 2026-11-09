@@ -38,14 +38,51 @@ final class ScreenWatcher {
     private var loopTask: Task<Void, Never>?
     private var lastThumbnail: [UInt8]?
 
-    private let pollInterval: Duration = .milliseconds(1500)
+    /// Everything the watcher needs from the system. Injected so tests can drive capture and
+    /// OCR timing without screen-recording permission; the app uses `.live`.
+    struct Environment {
+        var isEnabled: @MainActor () -> Bool
+        var ensureCaptureAccess: @MainActor () -> Void
+        var frontmostApp: @MainActor () -> (bundleID: String?, name: String?)
+        var captureDisplayUnderMouse: @MainActor (_ maxImageWidth: Int) async throws -> CGImage?
+        var recognizeText: @Sendable (CGImage) async -> String
+        var now: @MainActor () -> Date
+        var pollInterval: Duration
+
+        static var live: Environment {
+            Environment(
+                isEnabled: { Settings.shared.screenWatchEnabled },
+                ensureCaptureAccess: {
+                    if !CGPreflightScreenCaptureAccess() {
+                        // Prompts once; the user may have to relaunch after granting.
+                        _ = CGRequestScreenCaptureAccess()
+                    }
+                },
+                frontmostApp: {
+                    let app = NSWorkspace.shared.frontmostApplication
+                    return (app?.bundleIdentifier, app?.localizedName)
+                },
+                captureDisplayUnderMouse: { try await ScreenWatcher.captureDisplayUnderMouse(maxImageWidth: $0) },
+                recognizeText: { await ScreenWatcher.recognizeText(in: $0) },
+                now: { Date() },
+                pollInterval: .milliseconds(1500)
+            )
+        }
+    }
+
+    private let environment: Environment
+
+    init(environment: Environment = .live) {
+        self.environment = environment
+    }
+
     /// Mean absolute per-pixel difference (0-255) on the 64x36 thumbnail that counts as a
     /// meaningful change. ~3 ignores cursor/caret/clock noise but catches dialogs and page loads.
     private let changeThreshold: Double = 3.0
     private let maxImageWidth: Int = 1440
 
     /// Frontmost apps during which nothing is captured.
-    private static let sensitiveBundleIDs: Set<String> = [
+    static let sensitiveBundleIDs: Set<String> = [
         "com.1password.1password", "com.agilebits.onepassword7", "com.agilebits.onepassword-osx",
         "com.bitwarden.desktop", "com.lastpass.LastPass", "com.dashlane.dashlanephonefinal",
         "com.apple.keychainaccess", "com.apple.Passwords"
@@ -53,17 +90,15 @@ final class ScreenWatcher {
 
     func start() {
         guard loopTask == nil else { return }
-        guard Settings.shared.screenWatchEnabled else { return }
-        if !CGPreflightScreenCaptureAccess() {
-            // Prompts once; the user may have to relaunch after granting.
-            _ = CGRequestScreenCaptureAccess()
-        }
+        guard environment.isEnabled() else { return }
+        environment.ensureCaptureAccess()
         isWatching = true
         lastError = nil
+        let pollInterval = environment.pollInterval
         loopTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.tick()
-                try? await Task.sleep(for: self?.pollInterval ?? .seconds(2))
+                try? await Task.sleep(for: pollInterval)
             }
         }
         Log.app.info("Screen watcher started")
@@ -80,25 +115,25 @@ final class ScreenWatcher {
     }
 
     private func tick() async {
-        let front = NSWorkspace.shared.frontmostApplication
-        if let bundleID = front?.bundleIdentifier, Self.sensitiveBundleIDs.contains(bundleID) {
+        let front = environment.frontmostApp()
+        if let bundleID = front.bundleID, Self.sensitiveBundleIDs.contains(bundleID) {
             isPausedForPrivacy = true
             return
         }
         isPausedForPrivacy = false
 
         do {
-            guard let image = try await captureDisplayUnderMouse() else { return }
+            guard let image = try await environment.captureDisplayUnderMouse(maxImageWidth) else { return }
             let thumb = Self.thumbnail(of: image)
             if let previous = lastThumbnail, Self.meanDifference(previous, thumb) < changeThreshold {
                 return
             }
             lastThumbnail = thumb
             guard let jpeg = Self.jpegData(image) else { return }
-            let text = await Self.recognizeText(in: image)
-            latest = ScreenSnapshot(jpeg: jpeg, ocrText: text, frontmostApp: front?.localizedName, capturedAt: Date())
+            let text = await environment.recognizeText(image)
+            latest = ScreenSnapshot(jpeg: jpeg, ocrText: text, frontmostApp: front.name, capturedAt: environment.now())
             changeGeneration += 1
-            lastChangeAt = Date()
+            lastChangeAt = environment.now()
             lastError = nil
         } catch {
             if lastError != error.localizedDescription {
@@ -108,7 +143,7 @@ final class ScreenWatcher {
         }
     }
 
-    private func captureDisplayUnderMouse() async throws -> CGImage? {
+    private static func captureDisplayUnderMouse(maxImageWidth: Int) async throws -> CGImage? {
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main
         guard let displayID = screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else { return nil }

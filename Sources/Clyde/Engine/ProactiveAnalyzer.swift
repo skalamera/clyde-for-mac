@@ -29,7 +29,7 @@ final class ProactiveAnalyzer {
     private let meetingContext: MeetingContext
     private let mcp: MCPManager
     private let runner: ConversationRunner
-    private let router: LLMRouter
+    private let router: any ModelRoutingBackend
     private var loopTask: Task<Void, Never>?
 
     private let minimumInterval: TimeInterval = 8
@@ -41,7 +41,7 @@ final class ProactiveAnalyzer {
     /// still loading/animating is captured once settled rather than mid-transition.
     private let screenSettleInterval: TimeInterval = 1.5
 
-    init(meetingContext: MeetingContext, llm: LLMRouter, mcp: MCPManager, screen: ScreenWatcher) {
+    init(meetingContext: MeetingContext, llm: any ModelRoutingBackend, mcp: MCPManager, screen: ScreenWatcher) {
         self.screen = screen
         self.meetingContext = meetingContext
         self.mcp = mcp

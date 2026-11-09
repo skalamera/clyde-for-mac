@@ -94,6 +94,17 @@ actor MCPManager {
             try await client.connect(transport: transport)
         }
 
+        try await register(config, client: client, process: process)
+    }
+
+    /// Connects `config` over an already-built transport (an in-process server in tests).
+    func connect(_ config: MCPServerConfig, transport: any Transport) async throws {
+        let client = Client(name: "Clyde", version: "0.1.0")
+        try await client.connect(transport: transport)
+        try await register(config, client: client, process: nil)
+    }
+
+    private func register(_ config: MCPServerConfig, client: Client, process: Process?) async throws {
         let (tools, _) = try await client.listTools()
         connections[config.name] = Connection(config: config, client: client, process: process, tools: tools)
         Log.mcp.info("Connected MCP server '\(config.name, privacy: .public)' — \(tools.count) tool(s).")

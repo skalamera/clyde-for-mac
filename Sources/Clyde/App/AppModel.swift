@@ -53,6 +53,10 @@ final class AppModel {
     private var rmsMonitorTask: Task<Void, Never>?
     private var meetingStartedAt: Date?
 
+    /// Asks for microphone access at meeting start. Replaceable so tests can drive the start
+    /// flow (including its failure exits) without a real permission prompt.
+    var requestMicrophoneAccess: @MainActor () async -> Bool = { await MicCapture.requestAccess() }
+
     /// Identity of the calendar event the CURRENT meeting was started from, if any — carried
     /// from `startMeetingFromCalendar(_:)` through to `stopMeeting()`, where it's used both to
     /// look up prior occurrences of this same standing meeting and to tag the new summary with
@@ -308,7 +312,7 @@ final class AppModel {
         meetingStatusMessage = "Requesting permissions…"
 
         Log.audio.info("startMeeting() called — requesting microphone access…")
-        let micGranted = await MicCapture.requestAccess()
+        let micGranted = await requestMicrophoneAccess()
         guard micGranted else {
             meetingStatusMessage = "Microphone access denied — enable it in System Settings > Privacy & Security."
             Log.audio.error("Microphone access denied or not determined — aborting meeting start.")
@@ -697,3 +701,13 @@ final class AppModel {
         return meetingContext.finalizedTranscriptText
     }
 }
+
+#if DEBUG
+extension AppModel {
+    /// Test-only: seeds state that the app normally loads from disk and the calendar feed.
+    func seedForTesting(notes: [MeetingNote], calendarEvents: [CalendarEvent]) {
+        self.notes = notes
+        self.calendarEvents = calendarEvents
+    }
+}
+#endif

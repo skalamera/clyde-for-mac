@@ -5,6 +5,12 @@ enum ModelPurpose {
     case proactive
 }
 
+/// A backend that also knows which model name fits each purpose for whichever backend is
+/// active. `LLMRouter` in the app; scripted fakes in tests.
+protocol ModelRoutingBackend: LLMBackend {
+    func effectiveModel(for purpose: ModelPurpose) -> String
+}
+
 /// Picks which concrete backend actually handles a request. An explicit backend selected in
 /// Settings always wins (falling back only if it isn't usable at all — no key / CLI missing);
 /// "Automatic" preserves the original preference order:
@@ -18,7 +24,7 @@ enum ModelPurpose {
 /// `gemini-2.5-flash`), so callers must not hardcode a model string themselves — they ask
 /// `effectiveModel(for:)` for whichever one matches the currently-active backend, then pass
 /// that into `stream(model:)`.
-final class LLMRouter: LLMBackend, @unchecked Sendable {
+final class LLMRouter: ModelRoutingBackend, @unchecked Sendable {
     private let gemini: GeminiClient
     private let anthropic: AnthropicClient
     private let cli: ClaudeCodeCLIBackend
