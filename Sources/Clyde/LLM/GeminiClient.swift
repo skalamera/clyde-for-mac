@@ -215,7 +215,7 @@ final class GeminiClient: LLMBackend, @unchecked Sendable {
         }
     }
 
-    private static func encodeMessage(_ message: LLMMessage) -> [String: Any] {
+    static func encodeMessage(_ message: LLMMessage) -> [String: Any] {
         var parts: [[String: Any]] = []
         for content in message.content {
             switch content {

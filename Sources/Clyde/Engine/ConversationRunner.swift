@@ -106,11 +106,14 @@ struct ConversationRunner: Sendable {
                 return collected.sorted { $0.0 < $1.0 }.map(\.1)
             }
 
-            var resultContent: [LLMMessage.Content] = results.map { .toolResult($0) }
-            if round >= maxToolRounds {
-                resultContent.append(.text(Self.budgetExhaustedInstruction))
+            var toolResults = results
+            if round >= maxToolRounds, let last = toolResults.indices.last {
+                // Carried inside the last tool result, not as a separate text part: Gemini
+                // requires the turn after a functionCall turn to hold only functionResponse
+                // parts (one per call) and rejects the request otherwise.
+                toolResults[last].content += "\n\n" + Self.budgetExhaustedInstruction
             }
-            messages.append(LLMMessage(role: .user, content: resultContent))
+            messages.append(LLMMessage(role: .user, content: toolResults.map { .toolResult($0) }))
         }
     }
 }
